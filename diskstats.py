@@ -32,6 +32,32 @@
 #    </Module>
 #</Plugin>
 #
+# Values from /proc/diskstats are increasing counters, to make values usable a
+# delta is computed between two measurements. Delta could be either computed
+# by this plugin or by collectd. This plugin compute the delta
+# per-interval (usually 10 seconds). On the other hand, collectd compute the
+# delta per-second.
+#
+# Note: This change is backward incompatible. Per-second value and
+# per-interval (per 10 seconds with default config) values can not be mixed.
+# In addition, because metric are send either as gauge (delta per-interval)
+# or as counter (delta per-second), the metrics will not have the same name.
+#
+# This is configurable using the param 'DeltaPerSecond', which could be either
+# 'yes' or 'no' (default to no).
+#
+# e.g.
+#
+#<Plugin python>
+#    ModulePath "/path/to/modules"
+#    Import "diskstats"
+#
+#    <Module diskstats>
+#        DeltaPerSecond yes
+#        [...]
+#    </Module>
+#</Plugin>
+#
 # The fields in /proc/diskstats are documented in Documentation/iostats.txt in
 # the Linux kernel source tree.
 
@@ -53,9 +79,13 @@ field_map = {
 
 disks = []
 
+delta_per_second = False
+
 previous_values = {}
 
 def diskstats_config(c):
+    global delta_per_second
+
     if c.values[0] != 'diskstats':
         return
 
@@ -66,6 +96,9 @@ def diskstats_config(c):
                     disks.append(v)
                     if v not in previous_values:
                         previous_values[v] = {}
+        elif child.key == 'DeltaPerSecond':
+            if len(child.values) > 0 and child.values[0] is True:
+                delta_per_second = True
 
 def diskstats_read(data=None):
     # if no disks to monitor, do nothing
@@ -75,6 +108,7 @@ def diskstats_read(data=None):
     fh = open('/proc/diskstats', 'r')
 
     values = collectd.Values(type='gauge', plugin='diskstats')
+    values_counter = collectd.Values(type='counter', plugin='diskstats')
 
     for line in fh:
         fields = line.split()
@@ -96,6 +130,17 @@ def diskstats_read(data=None):
 
             value = int(fields[i+2])
 
+            # field 9 is not a counter
+            if i == 9:
+                values.dispatch(plugin_instance=device, type_instance=field_map[i], values=[value])
+                continue
+
+            # when delta is per-second, send mertric as counter and let collectd
+            # do the delta. In other case, this plugin will do the delta.
+            if delta_per_second:
+                values_counter.dispatch(plugin_instance=device, type_instance=field_map[i], values=[value])
+                continue
+
             # if this is the first value, simply record and move on to next field
             if i not in previous_values[device]:
                 previous_values[device][i] = value
@@ -111,10 +156,6 @@ def diskstats_read(data=None):
                 delta = 4294967296 - previous_value + value
             else:
                 delta = value - previous_value
-
-            # field 9 is not a counter
-            if i == 9:
-                delta = value
 
             # record the new previous value
             previous_values[device][i] = value

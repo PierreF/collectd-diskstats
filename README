@@ -20,14 +20,21 @@ Here is an example configuration:
       Import "diskstats"
 
       <Module diskstats>
+          DeltaPerSecond no
           Disk sda
           Disk sda1
       </Module>
   </Plugin>
 
 The plugin produces data for the "diskstats" plugin. The plugin instance
-will be the device name. The plugin will write gauge data for 10 types. The
+will be the device name. The plugin will write data for 10 types. The
 type instance corresponds to the fields in /proc/iostats.
+
+DeltaPerSecond option allow to send either data as delta per seconds or as
+delta per measurement interval (collectd use 10 second by default). This change
+is backward incompatible: mixing per-seconds and per-interval would be
+meaningless.
+DeltaPerSecond could be either "yes" or "no", and defaults to "no".
 
 The Documentation/iostats.txt file in the Linux kernel source tree
 (http://git.kernel.org/?p=linux/kernel/git/torvalds/linux-2.6.git;a=blob_plain;f=Documentation/iostats.txt;hb=refs/tags/v2.6.36)
